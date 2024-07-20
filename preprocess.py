@@ -20,11 +20,11 @@ class PreProcess:
         self.target_shape = (96, 96, 64)  # 目标形状，其中64为高度
         self.problematic_samples = []
 
-    def generate_nii_files(self, path):
-        subjects = os.listdir(path)
+    def generate_nii_files(self, adni_path, nii_path):
+        subjects = os.listdir(adni_path)
         
         for subject in subjects:
-            subject_path = os.path.join(path, subject)
+            subject_path = os.path.join(adni_path, subject)
             methods = os.listdir(subject_path)
             for method in methods:
                 if method != "Field_Mapping":
@@ -36,7 +36,7 @@ class PreProcess:
                     image_datas = os.listdir(time_path)
                     for image_data in image_datas:
                         dcm_folder = os.path.join(time_path, image_data)
-                        output_folder = f"/home/LAB/chenlb24/adni/nii/{os.path.basename(dcm_folder)}"
+                        output_folder = os.path.join(nii_path, os.path.basename(dcm_folder))
                         try:
                             process_dicom_to_nii(dcm_folder, output_folder, self.target_shape)
                         except Exception as e:
@@ -103,5 +103,7 @@ class PreProcess:
 
 if __name__ == '__main__':
     p = PreProcess()
-    p.generate_nii_files("/home/LAB/chenlb24/adni/ADNI")
-    p.generate_h5_files("/home/LAB/chenlb24/adni/nii")
+    adni_path = "/home/LAB/chenlb24/adni/ADNI"  # input_path
+    nii_path = "/home/LAB/chenlb24/adni/nii"    # output_path
+    p.generate_nii_files(adni_path, nii_path)
+    p.generate_h5_files(nii_path)
