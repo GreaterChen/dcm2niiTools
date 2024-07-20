@@ -1,0 +1,3 @@
+本项目是基于ADNI数据的dcm转nii格式，只需在`preprocess.py`的主函数中指定ADNI数据路径即可
+
+如果需要基于任意dcm数据转nii格式，可以参考`utils.py`的工具函数`process_dicom_to_nii`

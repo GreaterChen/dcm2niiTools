@@ -103,5 +103,5 @@ class PreProcess:
 
 if __name__ == '__main__':
     p = PreProcess()
-    # p.generate_nii_files("/home/LAB/chenlb24/adni/ADNI")
+    p.generate_nii_files("/home/LAB/chenlb24/adni/ADNI")
     p.generate_h5_files("/home/LAB/chenlb24/adni/nii")
