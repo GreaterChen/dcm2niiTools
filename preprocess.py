@@ -4,21 +4,25 @@ import pandas as pd
 import h5py
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
-from utils import process_dicom_to_nii, process_nii_to_3d_array
+from utils import process_dicom_to_nii, process_nii_to_3d_array, save_nifti_file, load_nifti_file
 
 class PreProcess:
     def __init__(self):
-        self.label_file = pd.read_csv("/home/LAB/chenlb24/adni/adni2_axial_3d_3_class_6_22_2024.csv")
+        self.label_file = pd.read_csv("/home/LAB/chenlb24/ADNI/adni2_axial_3d_3_class_6_22_2024.csv")
         self.id_to_group = self.label_file.set_index("Image Data ID")["Group"].to_dict()
         self.group_to_num = {"CN": 0, "MCI": 1, "AD": 2}
-        self.train_store_path = "/home/LAB/chenlb24/adni/train_data.h5"
-        self.valid_store_path = "/home/LAB/chenlb24/adni/valid_data.h5"
-        self.test_store_path = "/home/LAB/chenlb24/adni/test_data.h5"
-        self.train_label_path = "/home/LAB/chenlb24/adni/train_labels.csv"
-        self.valid_label_path = "/home/LAB/chenlb24/adni/valid_labels.csv"
-        self.test_label_path = "/home/LAB/chenlb24/adni/test_labels.csv"
-        self.target_shape = (96, 96, 64)  # 目标形状，其中64为高度
+        self.train_store_path = "/home/LAB/chenlb24/ADNI/train_data.h5"
+        self.valid_store_path = "/home/LAB/chenlb24/ADNI/valid_data.h5"
+        self.test_store_path = "/home/LAB/chenlb24/ADNI/test_data.h5"
+        self.train_label_path = "/home/LAB/chenlb24/ADNI/train_labels.csv"
+        self.valid_label_path = "/home/LAB/chenlb24/ADNI/valid_labels.csv"
+        self.test_label_path = "/home/LAB/chenlb24/ADNI/test_labels.csv"
+        self.target_shape = (128, 128, 26)  # 目标形状
         self.problematic_samples = []
+        self.shape_statistics_path = "/home/LAB/chenlb24/ADNI/shape_statistics.csv"
+        self.resized_nii_path = "/home/LAB/chenlb24/ADNI/resized_nii"  # Resized NIfTI files directory
+        os.makedirs(self.resized_nii_path, exist_ok=True)
+        self.shape_statistics = []
 
     def generate_nii_files(self, adni_path, nii_path):
         subjects = os.listdir(adni_path)
@@ -57,21 +61,35 @@ class PreProcess:
             if label is None:
                 continue
             try:
-                preprocessed_3d_image = process_nii_to_3d_array(subject_path, self.target_shape)
+                original_3d_image, original_shape, resized_shape, original_affine = process_nii_to_3d_array(subject_path, self.target_shape, return_original_shape=True)
+                self.shape_statistics.append({'subject': subject, 'original_shape': original_shape, 'resized_shape': resized_shape})
                 dataset_name = os.path.basename(subject_path)
-                data_entries.append({'dataset_name': dataset_name, 'data': preprocessed_3d_image, 'label': label})
+                data_entries.append({'dataset_name': dataset_name, 'data': original_3d_image, 'label': label})
+                
+                # Save resized NIfTI file with updated affine
+                resized_nii_file_path = os.path.join(self.resized_nii_path, f"{dataset_name}_resized.nii")
+                save_nifti_file(original_3d_image, original_affine, resized_nii_file_path)
             except Exception as e:
                 self.problematic_samples.append((subject_path, str(e)))
             pbar.update(1)
         
         pbar.close()
 
-        train_entries, test_entries = train_test_split(data_entries, test_size=0.2, random_state=42)
-        train_entries, valid_entries = train_test_split(train_entries, test_size=0.25, random_state=42)  # 0.25 * 0.8 = 0.2
+        # Save shape statistics
+        shape_statistics_df = pd.DataFrame(self.shape_statistics)
+        shape_statistics_df.to_csv(self.shape_statistics_path, index=False)
 
-        self.save_data(train_entries, self.train_store_path, self.train_label_path)
-        self.save_data(valid_entries, self.valid_store_path, self.valid_label_path)
-        self.save_data(test_entries, self.test_store_path, self.test_label_path)
+        # 按8:2的比例分为训练集和测试集
+        train_entries, test_entries = train_test_split(data_entries, test_size=0.2, random_state=42)
+
+        # 将训练集中标签为1的样本移动到测试集中
+        train_entries_no_label1 = [entry for entry in train_entries if entry['label'] != 1]
+        label1_entries = [entry for entry in train_entries if entry['label'] == 1]
+        test_entries.extend(label1_entries)
+
+        # Save data
+        self.save_data(train_entries_no_label1, self.train_store_path, self.train_label_path)
+        self.save_data(test_entries, self.test_store_path, self.valid_label_path)
 
         self.print_problematic_samples()
 
@@ -103,7 +121,7 @@ class PreProcess:
 
 if __name__ == '__main__':
     p = PreProcess()
-    adni_path = "/home/LAB/chenlb24/adni/ADNI"  # input_path
-    nii_path = "/home/LAB/chenlb24/adni/nii"    # output_path
-    p.generate_nii_files(adni_path, nii_path)
+    adni_path = "/home/LAB/chenlb24/ADNI/ADNI"  # input_path
+    nii_path = "/home/LAB/chenlb24/ADNI/nii"    # output_path
+    # p.generate_nii_files(adni_path, nii_path)
     p.generate_h5_files(nii_path)
