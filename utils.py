@@ -4,6 +4,8 @@ import nibabel as nib
 import numpy as np
 import torch
 import torch.nn.functional as F
+import ants
+
 
 def convert_dcm_to_nii(dcm_folder, output_folder):
     """Convert DICOM files to NIfTI format if not already converted."""
@@ -68,10 +70,11 @@ def process_dicom_to_nii(dcm_folder, output_folder, target_shape):
     real_file = None
     imaginary_file = None
     for file in os.listdir(output_folder):
-        if 'real' in file and file.endswith(('.nii', '.nii.gz')):
-            real_file = os.path.join(output_folder, file)
-        elif 'imaginary' in file and file.endswith(('.nii', '.nii.gz')):
+        if 'imaginary' in file and file.endswith(('.nii', '.nii.gz')):
             imaginary_file = os.path.join(output_folder, file)
+        elif 'real' in file and file.endswith(('.nii', '.nii.gz')):
+            real_file = os.path.join(output_folder, file)
+        
     
     if not real_file or not imaginary_file:
         raise ValueError("Real or imaginary NIfTI files not found.")
@@ -86,16 +89,36 @@ def process_dicom_to_nii(dcm_folder, output_folder, target_shape):
     magnitude_file = os.path.join(output_folder, 'magnitude.nii')
     save_nifti_file(magnitude_data, real_affine, magnitude_file)
 
-def process_nii_to_3d_array(nii_folder, target_shape, return_original_shape=False):
+def process_nii_to_3d_array(nii_path, target_shape, return_original_shape=False):
     """Process NIfTI files to preprocessed 3D array."""
-    magnitude_file = os.path.join(nii_folder, 'magnitude.nii')
-    if not os.path.exists(magnitude_file):
-        raise ValueError(f"Magnitude NIfTI file not found in {nii_folder}.")
+    # magnitude_file = os.path.join(nii_path, 'magnitude.nii')
+    if not os.path.exists(nii_path):
+        raise ValueError(f"Magnitude NIfTI file not found in {nii_path}.")
     
-    magnitude_data, original_affine = load_nifti_file(magnitude_file)
+    magnitude_data, original_affine = load_nifti_file(nii_path)
     original_shape = magnitude_data.shape
     preprocessed_image, new_affine, resized_shape = preprocess_image(magnitude_data, target_shape, original_affine)
     
     if return_original_shape:
         return preprocessed_image, original_shape, resized_shape, new_affine
     return preprocessed_image
+
+
+def skull_stripping(nii_file, output_file):
+    """Perform skull stripping using FSL's bet2."""
+    command = f'bet2 {nii_file} {output_file} -m'
+    subprocess.run(command, shell=True, check=True)
+    print(f"Skull stripping completed for {nii_file}. Output saved to {output_file}.")
+    
+    
+def register_image(fixed_image_path, moving_image_path, output_path):
+    """Perform image registration using ANTs."""
+    fixed_img = ants.image_read(fixed_image_path)
+    moving_img = ants.image_read(moving_image_path)
+    
+    outs = ants.registration(fixed_img, moving_img, type_of_transform='Affine')
+    registered_img = outs['warpedmovout']
+    
+    ants.image_write(registered_img, output_path)
+    print(f"Registration completed for {moving_image_path}. Output saved to {output_path}.")
+

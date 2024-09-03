@@ -1,33 +1,39 @@
+import logging
 import os
+import shutil
 import numpy as np
 import pandas as pd
 import h5py
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
-from utils import process_dicom_to_nii, process_nii_to_3d_array, save_nifti_file, load_nifti_file
+from utils import *
 
 class PreProcess:
     def __init__(self):
-        self.label_file = pd.read_csv("/home/LAB/chenlb24/ADNI/adni2_axial_3d_3_class_6_22_2024.csv")
+        # 配置logger
+        logging.basicConfig(filename='/mnt/chenlb/datasets/ADNI/dcm2niiTools', 
+                            level=logging.INFO,
+                            format='%(asctime)s - %(levelname)s - %(message)s',
+                            filemode='w')  # 'w'表示写入模式，每次运行程序会覆盖日志文件
+        
+        self.logger = logging.getLogger(__name__)
+        
+        
+        self.label_file = pd.read_csv("/mnt/chenlb/datasets/ADNI/raw_data/adni2_axial_3d_3_class_6_22_2024.csv")
         self.id_to_group = self.label_file.set_index("Image Data ID")["Group"].to_dict()
         self.group_to_num = {"CN": 0, "MCI": 1, "AD": 2}
-        self.train_store_path = "/home/LAB/chenlb24/ADNI/train_data.h5"
-        self.valid_store_path = "/home/LAB/chenlb24/ADNI/valid_data.h5"
-        self.test_store_path = "/home/LAB/chenlb24/ADNI/test_data.h5"
-        self.train_label_path = "/home/LAB/chenlb24/ADNI/train_labels.csv"
-        self.valid_label_path = "/home/LAB/chenlb24/ADNI/valid_labels.csv"
-        self.test_label_path = "/home/LAB/chenlb24/ADNI/test_labels.csv"
         self.target_shape = (128, 128, 26)  # 目标形状
         self.problematic_samples = []
-        self.shape_statistics_path = "/home/LAB/chenlb24/ADNI/shape_statistics.csv"
-        self.resized_nii_path = "/home/LAB/chenlb24/ADNI/resized_nii"  # Resized NIfTI files directory
-        os.makedirs(self.resized_nii_path, exist_ok=True)
         self.shape_statistics = []
-
-    def generate_nii_files(self, adni_path, nii_path):
+        
+    def generate_nii_files(self, adni_path, output_path):
+        self.raw_nii_path = os.path.join(output_path, "nii")
+        if os.path.exists(self.raw_nii_path):
+            shutil.rmtree(self.raw_nii_path)
+        os.makedirs(self.raw_nii_path, exist_ok=True)
         subjects = os.listdir(adni_path)
         
-        for subject in subjects:
+        for subject in tqdm(subjects):
             subject_path = os.path.join(adni_path, subject)
             methods = os.listdir(subject_path)
             for method in methods:
@@ -40,15 +46,58 @@ class PreProcess:
                     image_datas = os.listdir(time_path)
                     for image_data in image_datas:
                         dcm_folder = os.path.join(time_path, image_data)
-                        output_folder = os.path.join(nii_path, os.path.basename(dcm_folder))
+                        output_folder = os.path.join(self.raw_nii_path, os.path.basename(dcm_folder))
                         try:
                             process_dicom_to_nii(dcm_folder, output_folder, self.target_shape)
                         except Exception as e:
                             self.problematic_samples.append((dcm_folder, str(e)))
-
+                            
+        self.print_problematic_samples()
+        
+        
+    def process(self, nii_folder, output_folder):
+        self.skull_output_path = os.path.join(output_folder, "skull_stripping")
+        if os.path.exists(self.skull_output_path):
+            shutil.rmtree(self.skull_output_path)
+        os.makedirs(self.skull_output_path, exist_ok=True)
+        for nii_file in tqdm(os.listdir(nii_folder)):
+            try:    
+                magnitude_nii_file = os.path.join(nii_folder, nii_file, "magnitude.nii")
+                if magnitude_nii_file.endswith(".nii") or nii_file.endswith(".nii.gz"):
+                    output_file_path = os.path.join(self.skull_output_path, nii_file)
+                    skull_stripping(magnitude_nii_file, output_file_path)
+            except Exception as e:
+                self.problematic_samples.append((nii_file, str(e)))
+                    
+        self.register_output_path = os.path.join(output_folder, "register")
+        fixed_image_path = "/mnt/chenlb/datasets/utils/MNI152.nii"  # 替换为你的MNI模板路径
+        
+        if os.path.exists(self.register_output_path):
+            shutil.rmtree(self.register_output_path)
+        os.makedirs(self.register_output_path, exist_ok=True)
+        
+        for nii_file in tqdm(os.listdir(self.skull_output_path)):
+            try:
+                if "mask" not in nii_file:
+                    input_path = os.path.join(self.skull_output_path, nii_file)
+                    output_file_path = os.path.join(self.register_output_path, os.path.basename(nii_file).split('_')[0])
+                    register_image(fixed_image_path, input_path, output_file_path)
+            except Exception as e:
+                self.problematic_samples.append((nii_file, str(e)))
+                
         self.print_problematic_samples()
 
-    def generate_h5_files(self, nii_path):
+    def generate_h5_files(self, nii_path, output_path):
+        resized_save_path = os.path.join(output_path, "resized")
+        if os.path.exists(resized_save_path):
+            shutil.rmtree(resized_save_path)
+        os.makedirs(resized_save_path, exist_ok=True)
+        
+        final_save_path = os.path.join(output_path, "generated_processed")
+        if os.path.exists(final_save_path):
+            shutil.rmtree(final_save_path)
+        os.makedirs(final_save_path, exist_ok=True)
+        
         data_entries = []
         nii_subjects = os.listdir(nii_path)
         total_samples = len(nii_subjects)
@@ -56,8 +105,9 @@ class PreProcess:
         pbar = tqdm(total=total_samples, desc="Processing NIfTI Samples")
         
         for subject in nii_subjects:
+            subject_id = subject.split('.')[0]
             subject_path = os.path.join(nii_path, subject)
-            label = self.get_label(subject)
+            label = self.get_label(subject_id)
             if label is None:
                 continue
             try:
@@ -67,7 +117,7 @@ class PreProcess:
                 data_entries.append({'dataset_name': dataset_name, 'data': original_3d_image, 'label': label})
                 
                 # Save resized NIfTI file with updated affine
-                resized_nii_file_path = os.path.join(self.resized_nii_path, f"{dataset_name}_resized.nii")
+                resized_nii_file_path = os.path.join(resized_save_path, subject)
                 save_nifti_file(original_3d_image, original_affine, resized_nii_file_path)
             except Exception as e:
                 self.problematic_samples.append((subject_path, str(e)))
@@ -77,7 +127,7 @@ class PreProcess:
 
         # Save shape statistics
         shape_statistics_df = pd.DataFrame(self.shape_statistics)
-        shape_statistics_df.to_csv(self.shape_statistics_path, index=False)
+        shape_statistics_df.to_csv(os.path.join(final_save_path, "shape_statistics.csv"), index=False)
 
         # 按8:2的比例分为训练集和测试集
         train_entries, test_entries = train_test_split(data_entries, test_size=0.2, random_state=42)
@@ -88,8 +138,14 @@ class PreProcess:
         test_entries.extend(label1_entries)
 
         # Save data
-        self.save_data(train_entries_no_label1, self.train_store_path, self.train_label_path)
-        self.save_data(test_entries, self.test_store_path, self.valid_label_path)
+        train_store_path = os.path.join(final_save_path, "train_data.h5")
+        train_label_path = os.path.join(final_save_path, "train_labels.csv")
+        test_store_path = os.path.join(final_save_path, "test_data.h5")
+        test_label_path = os.path.join(final_save_path, "test_labels.csv")
+        valid_store_path = os.path.join(final_save_path, "valid_data.h5")
+        valid_label_path = os.path.join(final_save_path, "valid_labels.csv")
+        self.save_data(train_entries_no_label1, train_store_path, train_label_path)
+        self.save_data(test_entries, valid_store_path, valid_label_path)
 
         self.print_problematic_samples()
 
@@ -102,8 +158,8 @@ class PreProcess:
                 label = entry['label']
                 data_store.create_dataset(dataset_name, data=data)
                 labels.append({'dataset_name': dataset_name, 'label': label})
-            labels_df = pd.DataFrame(labels)
-            labels_df.to_csv(label_path, index=False)
+        labels_df = pd.DataFrame(labels)
+        labels_df.to_csv(label_path, index=False)
         
     def get_label(self, subject_id):
         try:
@@ -111,17 +167,18 @@ class PreProcess:
             label = self.group_to_num[group]
             return label
         except IndexError:
-            print(f"Label not found for {subject_id}")
+            self.logger.error(f"Label not found for {subject_id}")
             return None
 
     def print_problematic_samples(self):
-        print("\nProblematic samples encountered during processing:")
+        self.logger.error("\nProblematic samples encountered during processing:")
         for sample, error in self.problematic_samples:
-            print(f"Sample: {sample} | Error: {error}")
+            self.logger.error(f"Sample: {sample} | Error: {error}")
 
 if __name__ == '__main__':
     p = PreProcess()
-    adni_path = "/home/LAB/chenlb24/ADNI/ADNI"  # input_path
-    nii_path = "/home/LAB/chenlb24/ADNI/nii"    # output_path
-    # p.generate_nii_files(adni_path, nii_path)
-    p.generate_h5_files(nii_path)
+    adni_path = "/mnt/chenlb/datasets/ADNI/raw_data/ADNI"  # input_path
+    output_path = "/mnt/chenlb/datasets/ADNI"    # output_path
+    # p.generate_nii_files(adni_path, output_path)
+    # p.process("/mnt/chenlb/datasets/ADNI/nii", output_path)
+    p.generate_h5_files("/mnt/chenlb/datasets/ADNI/register", output_path)
