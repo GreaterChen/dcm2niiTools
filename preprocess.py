@@ -11,7 +11,7 @@ from utils import *
 class PreProcess:
     def __init__(self):
         # 配置logger
-        logging.basicConfig(filename='/mnt/chenlb/datasets/ADNI/dcm2niiTools', 
+        logging.basicConfig(filename='/mnt/chenlb/datasets/ADNI/dcm2niiTools/log.log', 
                             level=logging.INFO,
                             format='%(asctime)s - %(levelname)s - %(message)s',
                             filemode='w')  # 'w'表示写入模式，每次运行程序会覆盖日志文件
@@ -22,7 +22,7 @@ class PreProcess:
         self.label_file = pd.read_csv("/mnt/chenlb/datasets/ADNI/raw_data/adni2_axial_3d_3_class_6_22_2024.csv")
         self.id_to_group = self.label_file.set_index("Image Data ID")["Group"].to_dict()
         self.group_to_num = {"CN": 0, "MCI": 1, "AD": 2}
-        self.target_shape = (128, 128, 26)  # 目标形状
+        self.target_shape = (45, 55, 45)# 目标形状
         self.problematic_samples = []
         self.shape_statistics = []
         
@@ -70,7 +70,7 @@ class PreProcess:
                 self.problematic_samples.append((nii_file, str(e)))
                     
         self.register_output_path = os.path.join(output_folder, "register")
-        fixed_image_path = "/mnt/chenlb/datasets/utils/MNI152.nii"  # 替换为你的MNI模板路径
+        fixed_image_path = "/mnt/chenlb/datasets/utils/MNI152.nii" 
         
         if os.path.exists(self.register_output_path):
             shutil.rmtree(self.register_output_path)
@@ -85,6 +85,58 @@ class PreProcess:
             except Exception as e:
                 self.problematic_samples.append((nii_file, str(e)))
                 
+                
+        # self.bbox_path = os.path.join(output_folder, "bbox")
+        # if not os.path.exists(self.bbox_path):
+        #     shutil.rmtree(self.bbox_path)
+
+        # os.makedirs(self.bbox_path, exist_ok=True)
+        
+        # for file_name in os.listdir(self.register_output_path):
+        #     file_path = os.path.join(self.register_output_path, file_name)
+        #     output_path = os.path.join(self.bbox_path, file_name)
+            
+        #     # 加载NIfTI文件
+        #     img = nib.load(file_path)
+        #     image_data = img.get_fdata()
+            
+        #     # 找到bounding box
+        #     bbox = find_bounding_box(image_data)
+        #     print(f'File: {file_name}, BBox: {bbox}')
+            
+        #     # 裁剪图像
+        #     cropped_image = crop_image(image_data, bbox)
+            
+        #     # 保存裁剪后的图像
+        #     cropped_img = nib.Nifti1Image(cropped_image, img.affine)
+        #     nib.save(cropped_img, output_path)
+
+        # bbox_list = []
+
+        # for file_name in os.listdir(self.register_output_path):
+        #     file_path = os.path.join(self.register_output_path, file_name)
+            
+        #     img = nib.load(file_path)
+        #     image_data = img.get_fdata()
+            
+        #     bbox = find_bounding_box(image_data)
+        #     bbox_list.append(bbox)
+
+        # max_bbox = get_max_bounding_box(bbox_list)
+        # self.logger.info(f'Maximum BBox: {max_bbox}')
+
+        # for file_name in os.listdir(self.register_output_path):
+        #     file_path = os.path.join(self.register_output_path, file_name)
+        #     output_path = os.path.join(self.bbox_path, file_name)
+            
+        #     img = nib.load(file_path)
+        #     image_data = img.get_fdata()
+            
+        #     cropped_image = crop_image(image_data, max_bbox)
+            
+        #     cropped_img = nib.Nifti1Image(cropped_image, img.affine)
+        #     nib.save(cropped_img, output_path)
+
         self.print_problematic_samples()
 
     def generate_h5_files(self, nii_path, output_path):
@@ -93,7 +145,7 @@ class PreProcess:
             shutil.rmtree(resized_save_path)
         os.makedirs(resized_save_path, exist_ok=True)
         
-        final_save_path = os.path.join(output_path, "generated_processed")
+        final_save_path = os.path.join(output_path, "generated_processed_45_55_45")
         if os.path.exists(final_save_path):
             shutil.rmtree(final_save_path)
         os.makedirs(final_save_path, exist_ok=True)
@@ -174,7 +226,8 @@ class PreProcess:
         self.logger.error("\nProblematic samples encountered during processing:")
         for sample, error in self.problematic_samples:
             self.logger.error(f"Sample: {sample} | Error: {error}")
-
+            
+            
 if __name__ == '__main__':
     p = PreProcess()
     adni_path = "/mnt/chenlb/datasets/ADNI/raw_data/ADNI"  # input_path

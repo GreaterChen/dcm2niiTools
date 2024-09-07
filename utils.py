@@ -121,4 +121,36 @@ def register_image(fixed_image_path, moving_image_path, output_path):
     
     ants.image_write(registered_img, output_path)
     print(f"Registration completed for {moving_image_path}. Output saved to {output_path}.")
+    
+    
+def find_bounding_box(image_data):
+    # 找到各轴上非零体素的最小和最大索引
+    coords = np.argwhere(image_data)
+    x_min, y_min, z_min = coords.min(axis=0)
+    x_max, y_max, z_max = coords.max(axis=0)
+    
+    # 返回bounding box的起始和结束坐标
+    return (x_min, x_max), (y_min, y_max), (z_min, z_max)
+
+def crop_image(image_data, bbox):
+    (x_min, x_max), (y_min, y_max), (z_min, z_max) = bbox
+    cropped_image = image_data[x_min:x_max+1, y_min:y_max+1, z_min:z_max+1]
+    return cropped_image
+
+def get_max_bounding_box(bbox_list):
+    # 将bbox_list中的每个bbox分别解包成6个独立的值
+    x_mins = [bbox[0][0] for bbox in bbox_list]
+    x_maxs = [bbox[0][1] for bbox in bbox_list]
+    y_mins = [bbox[1][0] for bbox in bbox_list]
+    y_maxs = [bbox[1][1] for bbox in bbox_list]
+    z_mins = [bbox[2][0] for bbox in bbox_list]
+    z_maxs = [bbox[2][1] for bbox in bbox_list]
+    
+    max_bbox = (
+        (min(x_mins), max(x_maxs)),
+        (min(y_mins), max(y_maxs)),
+        (min(z_mins), max(z_maxs))
+    )
+    return max_bbox
+
 
