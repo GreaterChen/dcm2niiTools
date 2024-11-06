@@ -4,7 +4,7 @@ import shutil
 import numpy as np
 import pandas as pd
 import h5py
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, StratifiedKFold
 
 from tqdm import tqdm
 from utils import *
@@ -94,16 +94,20 @@ class PreProcess:
             shutil.rmtree(resized_save_path)
         os.makedirs(resized_save_path, exist_ok=True)
         
-        final_save_path = os.path.join(output_path, "generated_(91,109,91)_1miss")
+        final_save_path = os.path.join(output_path, "generated_91_109_91")
         if os.path.exists(final_save_path):
             shutil.rmtree(final_save_path)
         os.makedirs(final_save_path, exist_ok=True)
         
         data_entries = []
+        labels = []
         nii_subjects = os.listdir(nii_path)
         total_samples = len(nii_subjects)
         
         pbar = tqdm(total=total_samples, desc="Processing NIfTI Samples")
+
+        original_shape = []
+        resized_shape = []
         
         for subject in nii_subjects:
             subject_id = subject.split('.')[0]
@@ -115,22 +119,38 @@ class PreProcess:
                 original_3d_image, original_shape, resized_shape, original_affine = process_nii_to_3d_array(subject_path, self.target_shape, return_original_shape=True)
                 dataset_name = os.path.basename(subject_path)
                 data_entries.append({'dataset_name': dataset_name, 'data': original_3d_image, 'label': label})
-                
+                labels.append(label)
+
+                original_shape.append(original_shape)
+                resized_shape.append(resized_shape)
+            
             except Exception as e:
                 self.problematic_samples.append((subject_path, str(e)))
             pbar.update(1)
         
+        print(set(original_shape))
+        print(set(resized_shape))
+        
         pbar.close()
 
-        kf = KFold(n_splits=5, shuffle=True, random_state=42)
+        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
         fold_index = 1
-        for train_index, test_index in kf.split(data_entries):
+        for train_index, test_index in skf.split(data_entries, labels):
+
             train_entries = [data_entries[i] for i in train_index]
             test_entries = [data_entries[i] for i in test_index]
 
-            # 删除train_entries中label为1的样本
-            train_entries = [entry for entry in train_entries if entry['label'] != 1]
+            # 统计label分布
+            train_label_distribution = {0: 0, 1: 0, 2: 0}
+            for entry in train_entries:
+                train_label_distribution[entry['label']] += 1
+            print(f"train label distribution in fold {fold_index}: {train_label_distribution}")
+
+            test_label_distribution = {0: 0, 1: 0, 2: 0}
+            for entry in test_entries:
+                test_label_distribution[entry['label']] += 1
+            print(f"test label distribution in fold {fold_index}: {test_label_distribution}")
 
             train_store_path = os.path.join(final_save_path, f"train_data_fold{fold_index}.h5")
             train_label_path = os.path.join(final_save_path, f"train_labels_fold{fold_index}.csv")
@@ -143,6 +163,7 @@ class PreProcess:
             fold_index += 1
 
     def save_data(self, entries, data_path, label_path):
+        
         with h5py.File(data_path, 'w') as data_store:
             labels = []
             for entry in entries:
@@ -172,7 +193,7 @@ class PreProcess:
 if __name__ == '__main__':
     p = PreProcess()
     adni_path = "/mnt/chenlb/datasets/ADNI/raw_data/ADNI"  # input_path
-    output_path = "/mnt/chenlb/datasets/ADNI"    # output_path
+    output_path = "/mnt/chenlb/datasets/ADNIt"    # output_path
     # p.generate_nii_files(adni_path, output_path)
     # p.process("/mnt/chenlb/datasets/ADNI/nii", output_path)
     p.generate_h5_files("/mnt/chenlb/datasets/ADNI/register", output_path)
